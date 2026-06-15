@@ -2,16 +2,20 @@
 
 #include "proto/wire.h"
 
-/* Streaming reader: one chunk at a time into a growable list. */
+/* Bulk reader: one allocation + one fread for the whole chunk table. */
 int load_chunks(FILE *f, const wire_header_t *hdr, chunk_list_t *out) {
-    for (uint32_t i = 0; i < hdr->chunk_count; i++) {
-        chunk_t c;
-        if (fread(&c, sizeof(c), 1, f) != 1)
-            return -1;
-        if (chunk_list_append(out, &c) != 0)
-            return -1;
+    uint32_t total = hdr->chunk_count * (uint32_t)sizeof(chunk_t);
+    chunk_t *table = malloc(total);
+    if (!table)
+        return -1;
+    if (fread(table, sizeof(chunk_t), hdr->chunk_count, f) != hdr->chunk_count) {
+        free(table);
+        return -1;
     }
-    return 0;
+    int rc = chunk_list_adopt(out, table, hdr->chunk_count);
+    if (rc != 0)
+        free(table);
+    return rc;
 }
 
 char *read_name(FILE *f, const wire_header_t *hdr) {
